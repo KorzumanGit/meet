@@ -25,7 +25,7 @@ FIREWALL_RULE=meet-allow-22-80-443
 MEET_DOMAIN=meet.humbull.co
 
 # VM 上で git clone する URL（プライベートなら SSH URL）
-GIT_REPO_URL=https://github.com/humbull/meet.git
+GIT_REPO_URL=https://github.com/KorzumanGit/meet.git
 
 シェルに載せる場合（推奨・runbook と同一）:
   export GCP_PROJECT_ID="secretary-492601"
@@ -35,7 +35,7 @@ GIT_REPO_URL=https://github.com/humbull/meet.git
   export STATIC_ADDR_NAME="meet-static-ip"
   export FIREWALL_RULE="meet-allow-22-80-443"
   export MEET_DOMAIN="meet.humbull.co"
-  export GIT_REPO_URL="https://github.com/humbull/meet.git"
+  export GIT_REPO_URL="https://github.com/KorzumanGit/meet.git"
 
 オプション: deploy/.cline_gcp_env.example を deploy/.cline_gcp_env にコピーし実値を書き、作業シェルで
   set -a && source deploy/.cline_gcp_env && set +a

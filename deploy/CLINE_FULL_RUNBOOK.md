@@ -15,7 +15,7 @@ export GCP_ZONE="asia-northeast1-a"
 export VM_NAME="meet-vm"
 export STATIC_ADDR_NAME="meet-static-ip"
 export FIREWALL_RULE="meet-allow-22-80-443"
-export GIT_REPO_URL="https://github.com/humbull/meet.git"   # または SSH
+export GIT_REPO_URL="https://github.com/KorzumanGit/meet.git"   # または SSH
 export MEET_DOMAIN="meet.humbull.co"   # フェーズ2で使う FQDN（証明書・OAuth 用）
 ```
 
