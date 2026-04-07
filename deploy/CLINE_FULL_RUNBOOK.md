@@ -9,14 +9,14 @@
 ## 変数（先頭で一度だけ設定）
 
 ```bash
-export GCP_PROJECT_ID="YOUR_PROJECT_ID"
+export GCP_PROJECT_ID="secretary-492601"
 export GCP_REGION="asia-northeast1"
 export GCP_ZONE="asia-northeast1-a"
 export VM_NAME="meet-vm"
 export STATIC_ADDR_NAME="meet-static-ip"
 export FIREWALL_RULE="meet-allow-22-80-443"
-export GIT_REPO_URL="https://github.com/YOUR_ORG/meet.git"   # または SSH
-export MEET_DOMAIN="meet.example.com"   # フェーズ2で使う FQDN（証明書・OAuth 用）
+export GIT_REPO_URL="https://github.com/humbull/meet.git"   # または SSH
+export MEET_DOMAIN="meet.humbull.co"   # フェーズ2で使う FQDN（証明書・OAuth 用）
 ```
 
 ---
