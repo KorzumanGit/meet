@@ -1,0 +1,10 @@
+google-api-python-client>=2.100.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.1.0
+SpeechRecognition>=3.10.0
+# macOS: 先に `brew install portaudio` が必要な場合があります
+PyAudio>=0.2.14
+openai>=1.40.0
+python-dotenv>=1.0.0
+slack-bolt>=1.18.0
+flask>=2.3.0

@@ -1,0 +1,58 @@
+# meet ディレクトリで: docker compose up -d
+# 事前に .env / ios-shortcut-api/.env / credentials.json を配置すること。
+#
+# 本番では OAUTH_PUBLIC_BASE_URL=https://あなたのドメイン
+# oauth_server は IOS_SHORTCUT_API_BASE で Node に届ける（コンテナ名で解決）
+
+services:
+  ios-shortcut-api:
+    build: ./ios-shortcut-api
+    restart: unless-stopped
+    env_file:
+      - ./ios-shortcut-api/.env
+    environment:
+      PORT: "3847"
+    expose:
+      - "3847"
+    volumes:
+      # .env の GOOGLE_TOKEN_FILE=../data/google_tokens/... 用（working_dir=/usr/src/app → ../data）
+      - ./data:/usr/src/data:ro
+    working_dir: /usr/src/app
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:3847/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  oauth-server:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.python
+    restart: unless-stopped
+    command: ["python", "oauth_server.py"]
+    env_file:
+      - ./.env
+    environment:
+      OAUTH_SERVER_HOST: "0.0.0.0"
+      OAUTH_SERVER_PORT: "8888"
+      IOS_SHORTCUT_API_BASE: "http://ios-shortcut-api:3847"
+    ports:
+      - "127.0.0.1:8888:8888"
+    volumes:
+      - .:/meet
+    working_dir: /meet
+    depends_on:
+      - ios-shortcut-api
+
+  slack-bot:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.python
+    restart: unless-stopped
+    command: ["python", "slack_bot.py"]
+    env_file:
+      - ./.env
+    volumes:
+      - .:/meet
+    working_dir: /meet

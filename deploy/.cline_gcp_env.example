@@ -1,0 +1,10 @@
+# deploy/.cline_gcp_env にコピーして実値を調整し、作業シェルで source する。
+
+export GCP_PROJECT_ID="secretary-492601"
+export GCP_REGION="asia-northeast1"
+export GCP_ZONE="asia-northeast1-a"
+export VM_NAME="meet-vm"
+export STATIC_ADDR_NAME="meet-static-ip"
+export FIREWALL_RULE="meet-allow-22-80-443"
+export MEET_DOMAIN="meet.humbull.co"
+export GIT_REPO_URL="https://github.com/humbull/meet.git"

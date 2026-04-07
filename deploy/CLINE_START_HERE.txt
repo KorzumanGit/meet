@@ -1,0 +1,70 @@
+================================================================================
+【司令塔 Cursor → 手足 Cline】GCP デプロイ 最終指令書（単一の正）
+================================================================================
+このファイルを読んだら、人間の追加承認を待たずフェーズ 0〜7 を完走せよ。
+詳細コマンド: deploy/CLINE_FULL_RUNBOOK.md
+憲法・短文: deploy/CLINE_FINAL_PROMPT.txt（内容を重複実行でよい）
+
+--------------------------------------------------------------------------------
+【人間が Cline に打つ一行（コピペ用）】
+@deploy/CLINE_START_HERE.txt 実行開始
+
+--------------------------------------------------------------------------------
+【実値 CONFIG】※ 以下は司令塔が gcloud / 要件に合わせて記入済み。不足は Cline が検知したら補完せよ。
+
+# ローカル gcloud（2026-04-03 取得）: gcloud config get-value project
+GCP_PROJECT_ID=secretary-492601
+
+GCP_REGION=asia-northeast1
+GCP_ZONE=asia-northeast1-a
+VM_NAME=meet-vm
+STATIC_ADDR_NAME=meet-static-ip
+FIREWALL_RULE=meet-allow-22-80-443
+
+# フェーズ2の DNS / 証明書 / OAuth 用 FQDN
+MEET_DOMAIN=meet.humbull.co
+
+# VM 上で git clone する URL（プライベートなら SSH URL）
+GIT_REPO_URL=https://github.com/humbull/meet.git
+
+シェルに載せる場合（推奨・runbook と同一）:
+  export GCP_PROJECT_ID="secretary-492601"
+  export GCP_REGION="asia-northeast1"
+  export GCP_ZONE="asia-northeast1-a"
+  export VM_NAME="meet-vm"
+  export STATIC_ADDR_NAME="meet-static-ip"
+  export FIREWALL_RULE="meet-allow-22-80-443"
+  export MEET_DOMAIN="meet.humbull.co"
+  export GIT_REPO_URL="https://github.com/humbull/meet.git"
+
+オプション: deploy/.cline_gcp_env.example を deploy/.cline_gcp_env にコピーし実値を書き、作業シェルで
+  set -a && source deploy/.cline_gcp_env && set +a
+  （deploy/.cline_gcp_env は .gitignore 対象・秘密を書かないこと）
+
+--------------------------------------------------------------------------------
+【起動・信号の扱い】
+- リポジトリ直下の .cline_handoff_requested の先頭行が次なら、Cursor からの起動信号済みとみなす:
+  SIGNAL: START_GCP_DEPLOYMENT
+- 信号の更新: bash deploy/scripts/cline-handoff-signal.sh
+
+--------------------------------------------------------------------------------
+【絶対指針（要約）】
+- SingletonLock 回避: ブラウザ前に bash deploy/scripts/browser-temp-profile.sh
+- Slack Web ログイン禁止（トークンは既存 .env を scp）
+- エラーは自己解決を試み、試したコマンドと結果のみ報告。フェーズ間の人間承認禁止。
+
+--------------------------------------------------------------------------------
+【実行順（0→7）】
+0. gcloud プロジェクト・API・課金確認 → deploy/CLINE_FULL_RUNBOOK.md フェーズ0
+1. 静的外部 IP・ファイアウォール・VM
+2. DNS（A レコード → STATIC_IP）伝播待ち
+3. VM 内 Docker・clone・compose・秘密ファイル配置
+4. nginx + certbot（HTTPS）
+5. Google OAuth リダイレクト URI: https://$MEET_DOMAIN/oauth2callback
+6. iPhone ショートカット向け一文メモ
+7. curl https://$MEET_DOMAIN/health と compose ログ確認
+
+完了報告: VM 名、ゾーン、MEET_DOMAIN、STATIC_IP、ファイアウォール名、health の結果のみ。
+
+【脳からの最終命令】
+今から私は席を外す。戻ったときには https://$MEET_DOMAIN/health が疎通し、すべてのインフラが構築完了している状態にせよ。SingletonLock 回避を徹底し、エラーは自分で踏み倒して進め。実行開始しろ。

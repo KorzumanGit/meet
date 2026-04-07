@@ -1,0 +1,13 @@
+# meet 直下の Python サービス（oauth_server / slack_bot）用
+FROM python:3.11-slim-bookworm
+
+WORKDIR /meet
+
+COPY deploy/requirements-docker.txt /tmp/requirements-docker.txt
+RUN pip install --no-cache-dir -r /tmp/requirements-docker.txt
+
+# ビルド時は空でもよい。実行時はボリュームでマウントする想定
+COPY . /meet/
+
+ENV PYTHONUNBUFFERED=1
+WORKDIR /meet

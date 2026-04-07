@@ -1,0 +1,8 @@
+# クラウド用（マイク / PyAudio 不要）。Slack・OAuth・ios-shortcut-api 連携に必要な範囲。
+google-api-python-client>=2.100.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.1.0
+openai>=1.40.0
+python-dotenv>=1.0.0
+slack-bolt>=1.18.0
+flask>=2.3.0

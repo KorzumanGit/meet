@@ -1,0 +1,4 @@
+【入口は deploy に統一】
+司令塔の最終指令書: deploy/CLINE_START_HERE.txt を開け。
+
+人間の一言: @deploy/CLINE_START_HERE.txt 実行開始

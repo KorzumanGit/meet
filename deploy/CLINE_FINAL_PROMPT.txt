@@ -1,0 +1,26 @@
+これより GCP デプロイの全フェーズを自律実行せよ。
+
+【憲法・絶対指針】
+- 脳（Cursor）が用意したリポジトリ内ドキュメントを唯一の正とする: deploy/CLINE_FULL_RUNBOOK.md（詳細コマンド）、deploy/DEPLOY_GCP.md、docker-compose.yml。
+- 禁止: Slack の Web ブラウザへのログイン。Slack のトークンは既存の .env を VM に scp した前提で扱え。
+- 指針第2条 SingletonLock 回避: ブラウザ操作が必要な場合、必ず事前に `bash deploy/scripts/browser-temp-profile.sh` を実行し、出力された CLINE_CHROME_USER_DATA_DIR を使って Chrome/Chromium を起動すること（デフォルトプロフィールと共有しない）。
+- 指針第4条: エラーは自己解決を試み、試したコマンドと結果だけを簡潔に報告せよ。人間の承認をフェーズ間で待つな。
+
+【実行モード】
+- 指示待ち禁止: フェーズ 0→7 を完了確認ごとに即次へ進め。私の中間承認は不要。
+- ターミナル: gcloud の設定、プロジェクト選択、API 有効化、課金確認、Compute Engine（静的外部 IP・ファイアウォール・Ubuntu VM）、SSH、Docker、docker compose、nginx、certbot まで、あなたの権限で完結させよ。
+- ブラウザ: Google Cloud Console（OAuth リダイレクト URI 追加）等が必要な場合のみ、上記一時プロフィール方式で自律実行せよ。Slack コンソールには入るな。
+
+【手順の参照順】
+1. deploy/CLINE_FULL_RUNBOOK.md の変数セクションで GCP_PROJECT_ID / REGION / ZONE / VM_NAME / MEET_DOMAIN を実値に置換してから実行。
+2. フェーズ 1 完了後、STATIC_IP を記録し、フェーズ 2 の DNS に使用。
+3. フェーズ 3 は VM 内で docker compose。秘密はログにマスク。
+4. フェーズ 4 で HTTPS 化後、フェーズ 5 で https://$MEET_DOMAIN/oauth2callback を OAuth クライアントに追加。
+5. フェーズ 6 は人間向けの iPhone 手順を 1 段落で要約してよい。
+6. フェーズ 7 で curl https://$MEET_DOMAIN/health と compose logs を確認。
+
+【完了報告】
+- 最終的に VM 名、ゾーン、MEET_DOMAIN、STATIC_IP、ファイアウォール名、https://$MEET_DOMAIN/health の結果だけを出せ。
+
+【脳からの最終命令（人間不在）】
+今から私は席を外す。戻ったときには https://$MEET_DOMAIN/health が疎通し、すべてのインフラが構築完了している状態にせよ。SingletonLock 回避を徹底し、エラーは自分で踏み倒して進め。実行開始しろ。
