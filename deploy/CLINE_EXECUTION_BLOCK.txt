@@ -1,0 +1,7 @@
+@deploy/CLINE_START_HERE.txt 実行開始
+
+GIT_REPO_URL と MEET_DOMAIN は deploy/ 内に設定済みである。
+
+指針第2条（一時プロフィール）と第4条（自己修復）を遵守し、フェーズ0からフェーズ7まで、人間の介入なしで完結せよ。
+
+GCPプロジェクト secretary-492601 で、VM作成・Docker起動・SSL取得まで一気に走り抜けろ。
