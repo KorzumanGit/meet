@@ -9,6 +9,8 @@ COPY package.json package-lock.json* ./
 RUN npm ci
 
 COPY . .
+# e2-small 等での npm build OOM 回避（ビルド時ヒープ上限）
+ENV NODE_OPTIONS="--max-old-space-size=2048"
 RUN npm run build
 
 ENV PORT=3847
