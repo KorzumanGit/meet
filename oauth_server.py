@@ -37,6 +37,23 @@ _SLACK_USER_RE = re.compile(r"^U[A-Za-z0-9]+$")
 app = Flask(__name__)
 
 
+@app.route("/")
+def root():
+    """トップ URL（ブラウザでドメインを開いたときの案内）。"""
+    return (
+        "<!DOCTYPE html><html lang='ja'><head><meta charset='utf-8'><title>meet</title></head><body>"
+        "<h1>meet</h1>"
+        "<p>OAuth / Shortcuts 用バックエンドです。</p>"
+        "<ul>"
+        "<li><a href='/health'>GET /health</a> — 疎通確認</li>"
+        "<li>POST /api/meet — iOS ショートカット（要ヘッダ等）</li>"
+        "<li>/oauth/start?slack_user_id=… — Google 連携（Slack ユーザー ID が必要）</li>"
+        "</ul></body></html>",
+        200,
+        {"Content-Type": "text/html; charset=utf-8"},
+    )
+
+
 @app.route("/oauth/start")
 def oauth_start():
     slack_user_id = request.args.get("slack_user_id", "")
