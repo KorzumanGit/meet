@@ -67,13 +67,18 @@ def is_task_calendar_intent(user_text: str) -> bool:
     発話に「タスク」または「予定」が含まれる場合はタスク枠（Meet なし・30分）へ振り分ける。
     かな表記（たすく・よてい）も含める。
     「スケジュールを入れて」等、予定語なしでも同趣旨ならタスク枠とする。
+
+    「会議の予定」「明日のmtの予定」のように会議・Meet 系ワードもある場合は
+    タスクに落とさず会議（Meet 可）へ回す。
     """
     t = unicodedata.normalize("NFKC", user_text.strip())
     if "タスク" in t or "たすく" in t:
         return True
-    if "予定" in t or "よてい" in t:
-        return True
     if _SCHEDULE_TASK_PHRASE_RE.search(t):
+        return True
+    if "予定" in t or "よてい" in t:
+        if _MEETING_MEET_RE.search(t):
+            return False
         return True
     return False
 

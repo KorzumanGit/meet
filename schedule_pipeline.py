@@ -39,6 +39,7 @@ def run_schedule_pipeline(
     *,
     model: str | None = None,
     slack_user_id: str | None = None,
+    slack_filtered_meeting: bool = False,
 ) -> ScheduleResult:
     """
     自然言語テキストを解釈し、Google Calendar に登録する。
@@ -49,6 +50,9 @@ def run_schedule_pipeline(
 
     slack_user_id を渡すと、その Slack メンバー用に保存した Google トークンを使う（Slack 経由）。
     None のときは従来どおり単一の token.json（CLI）。
+
+    slack_filtered_meeting=True（Slack でキーワード・日時フィルターを通過した依頼）のときは、
+    タスクモードでない限り **必ず Meet 付きで作成**する（他ユーザーの言い回しで is_meeting_meet_intent が落ちるのを防ぐ）。
     """
     model = model or os.environ.get("OPENAI_MODEL", "gpt-4o")
     stripped = user_text.strip()
@@ -62,7 +66,10 @@ def run_schedule_pipeline(
     end_iso = parsed["end_iso"]
     start_iso, end_iso = ensure_default_duration_if_needed(start_iso, end_iso)
 
-    use_meet = (not task_mode) and is_meeting_meet_intent(stripped)
+    if slack_filtered_meeting:
+        use_meet = not task_mode
+    else:
+        use_meet = (not task_mode) and is_meeting_meet_intent(stripped)
 
     if task_mode:
         start_iso, end_iso = force_task_thirty_minutes(start_iso)

@@ -60,6 +60,21 @@ def create_event_with_meet(
         .execute()
     )
 
+    # 一部アカウントでは insert 直後に hangoutLink が空のことがある → get で再取得
+    if not extract_meet_url(created) and created.get("id"):
+        try:
+            created = (
+                service.events()
+                .get(
+                    calendarId=calendar_id,
+                    eventId=created["id"],
+                    conferenceDataVersion=1,
+                )
+                .execute()
+            )
+        except Exception:
+            pass
+
     return created
 
 

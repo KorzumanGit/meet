@@ -339,7 +339,12 @@ def on_message(event, client, logger, ack):
     def worker() -> None:
         try:
             calendar_uid = _calendar_slack_user_id_for_google(slack_user_id)
-            result = run_schedule_pipeline(user_text, slack_user_id=calendar_uid)
+            # @メンションのみの依頼は従来どおり本文で Meet 判定。フィルタールートは会議依頼なので Meet を付与
+            result = run_schedule_pipeline(
+                user_text,
+                slack_user_id=calendar_uid,
+                slack_filtered_meeting=not mention_ok,
+            )
             lines = [
                 f"*件名:* {result.event_summary}",
                 f"*開始:* `{result.start_iso}`",
