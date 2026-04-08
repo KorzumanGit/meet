@@ -1,5 +1,7 @@
 # GCP 上で常時稼働させる（Compute Engine + Docker）
 
+**本番運用ルール（必読）:** [`deploy/PRODUCTION_OPERATIONS.md`](./PRODUCTION_OPERATIONS.md)
+
 Mac をスリープさせても、外出先の Wi‑Fi からショートカットや Slack が使えるようにするには、**このリポジトリを Linux（VM）上で動かし、HTTPS のドメインで公開**します。ngrok は不要です。
 
 - **Cline に任せる用のプロンプト集:** [`deploy/CLINE_PROMPTS.md`](./CLINE_PROMPTS.md)（Slack ブラウザログインは含めない）
