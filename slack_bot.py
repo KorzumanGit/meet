@@ -9,10 +9,10 @@ Slack アプリ側:
   - OAuth: chat:write, channels:history, groups:history, im:history, mpim:history, files:read
   - Socket Mode をオン
   - DM: ボット宛にそのまま送る
-  - 公開/プライベートチャンネル: ボットを招待。@ボット メンション、または
-    「mt / ミーティング / 打ち合わせ」＋「組んで」または「セットして」、
-    または「予定・タスク・スケジュール」を「入れて／追加して／登録して」で依頼する文（例: 予定を入れて、カレンダーに入れて）
-    （「を」省略可）ならメンションなしでも可
+  - 公開/プライベートチャンネル: ボットを招待。メンションなしでは
+    「会議系キーワード（mt / mtg / 会議 / ミーティング / 打ち合わせ / 面談 / 商談 / アポ）」
+    かつ「具体的な日時」かつ「冒頭付近に日時」などの条件を満たしたときのみ処理（slack_message_filters）。
+    @ボット メンションなら条件免除。
   - Google カレンダーは Slack ユーザーごとに連携（初回は bot が OAuth 用 URL を返す）
   - 任意: .env の SCHEDULE_FORCE_CALENDAR_SLACK_USER_ID で「誰が送っても」その Slack ユーザーの Google カレンダーにだけ書く
   - OAuth 用に別途: python oauth_server.py（.env の OAUTH_PUBLIC_BASE_URL と Google のリダイレクト URI を一致させる）
@@ -53,6 +53,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from audio_transcribe import transcribe_audio_file
 from google_auth import GoogleAuthRequired, oauth_public_url_is_localhost
 from schedule_pipeline import run_schedule_pipeline
+from slack_message_filters import evaluate_schedule_trigger
 
 _SLACK_UID_RE = re.compile(r"^U[A-Za-z0-9]+$")
 
@@ -103,44 +104,6 @@ def _event_contains_bot_mention(event: dict, bot_user_id: str) -> bool:
         if f'"user_id": "{bot_user_id}"' in blob or f'"user_id":"{bot_user_id}"' in blob:
             return True
     return False
-
-
-# チャンネルで @ボット なしでも処理する依頼文
-# 「を」省略（ミーティング組んで）・打ち合わせ・セットして も許可
-_EXPLICIT_MEETING_REQUEST_RE = re.compile(
-    r"(?i)(?:mt|ミーティング|打ち合わせ)\s*(?:を\s*)?(?:組んで|セットして)"
-)
-# 予定・タスク・スケジュールを入れる／カレンダーに載せる、という依頼（メンション不要用）
-_EXPLICIT_SCHEDULE_REQUEST_RE = re.compile(
-    r"(?i)(?:"
-    r"(?:予定|よてい|タスク|たすく|スケジュール|すけじゅーる)\s*(?:を\s*)?"
-    r"(?:入れて|追加して|登録して|いれて)"
-    r"|"
-    r"(?:カレンダー|かれんだー)\s*(?:に|へ)\s*(?:入れて|追加して|登録して|いれて|追加)"
-    r")"
-)
-
-
-def _text_for_meeting_trigger(event: dict) -> str:
-    """メンション免除判定用の本文（blocks のプレーンテキストも含む）。"""
-    raw = event.get("text") or ""
-    if not raw.strip() and event.get("blocks"):
-        raw = _text_from_blocks(event["blocks"])
-    return _strip_slack_formatting(raw)
-
-
-def _is_explicit_meeting_request_form(text: str) -> bool:
-    """「ミーティングを組んで」「ミーティング組んで」「打ち合わせセットして」等の依頼か。"""
-    if not text or not text.strip():
-        return False
-    return bool(_EXPLICIT_MEETING_REQUEST_RE.search(text))
-
-
-def _is_explicit_schedule_request_form(text: str) -> bool:
-    """「予定を入れて」「タスク追加して」「カレンダーに入れて」等、カレンダー登録の依頼か。"""
-    if not text or not text.strip():
-        return False
-    return bool(_EXPLICIT_SCHEDULE_REQUEST_RE.search(text))
 
 
 IGNORE_SUBTYPES = frozenset(
@@ -301,7 +264,7 @@ def log_all_slack_events(req, resp, next):
 
 @app.event("message")
 def on_message(event, client, logger, ack):
-    """DM はそのまま。チャンネル / mpim は @ボット、または明示的な組み立て依頼文で処理。3秒以内に ack。"""
+    """DM / チャンネル共通で evaluate_schedule_trigger。処理しない場合はログのみ。3 秒以内に ack。"""
     ack()
 
     if event.get("bot_id"):
@@ -318,24 +281,11 @@ def on_message(event, client, logger, ack):
         logger.info("message スキップ: channel/ts なし event=%s", event.keys())
         return
 
-    if not _is_direct_message(event):
-        try:
-            bot_uid = _get_bot_user_id(client)
-        except Exception as e:
-            logger.exception("auth_test 失敗: %s", e)
-            return
-        mention_ok = _event_contains_bot_mention(event, bot_uid)
-        trig = _text_for_meeting_trigger(event)
-        explicit_ok = _is_explicit_meeting_request_form(trig) or _is_explicit_schedule_request_form(
-            trig
-        )
-        if not mention_ok and not explicit_ok:
-            logger.info(
-                "message スキップ: チャンネル等では @ボット か「ミーティング組んで」「予定を入れて」等の依頼文が必要 channel_type=%s channel=%s",
-                event.get("channel_type"),
-                channel,
-            )
-            return
+    try:
+        bot_uid = _get_bot_user_id(client)
+    except Exception as e:
+        logger.exception("auth_test 失敗: %s", e)
+        return
 
     user_text = _gather_input_text(event)
     if not user_text or not user_text.strip():
@@ -352,6 +302,31 @@ def on_message(event, client, logger, ack):
     if not slack_user_id:
         logger.info("message スキップ: user なし")
         return
+
+    is_dm = _is_direct_message(event)
+    mention_ok = _event_contains_bot_mention(event, bot_uid)
+    decision = evaluate_schedule_trigger(
+        user_text.strip(),
+        is_dm=is_dm,
+        mention_ok=mention_ok,
+    )
+    if not decision.ok:
+        logger.info(
+            "schedule_trigger 無視: reason=%s is_dm=%s mention=%s preview=%r",
+            decision.reason,
+            is_dm,
+            mention_ok,
+            user_text.strip()[:160],
+        )
+        return
+
+    logger.info(
+        "schedule_trigger 処理開始: reason=%s is_dm=%s mention=%s preview=%r",
+        decision.reason,
+        is_dm,
+        mention_ok,
+        user_text.strip()[:160],
+    )
 
     thread_ts = event.get("thread_ts") or event["ts"]
 
@@ -399,11 +374,10 @@ def on_message(event, client, logger, ack):
             except Exception as e2:
                 logger.exception("連携案内の送信に失敗: %s", e2)
         except Exception as e:
-            logger.exception("Slack pipeline failed")
-            try:
-                _reply_in_thread(client, channel, thread_ts, f"エラーが発生しました: `{e}`")
-            except Exception as e2:
-                logger.exception("エラー返信も失敗: %s", e2)
+            logger.exception(
+                "schedule_pipeline 失敗（Slack には返信しません） preview=%r",
+                user_text.strip()[:120],
+            )
 
     threading.Thread(target=worker, daemon=True).start()
 
