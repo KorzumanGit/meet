@@ -796,9 +796,11 @@ async function runMeetJob(
   opts?: MeetJobOptions
 ): Promise<void> {
   const parsed = parseMeetingFromText(text);
-  const taskMode = Boolean(opts?.forceTask) || isTaskCalendarIntent(text);
-  const wantMeet =
-    Boolean(opts?.forceGoogleMeet) || isMeetingMeetIntent(text);
+  /** JSON の `meet: true` 明示時はタスク分岐より優先し、必ず Meet 付きジョブへ */
+  const explicitMeet = Boolean(opts?.forceGoogleMeet);
+  const taskMode =
+    (Boolean(opts?.forceTask) || isTaskCalendarIntent(text)) && !explicitMeet;
+  const wantMeet = explicitMeet || isMeetingMeetIntent(text);
   const slackUserId = opts?.slackUserId;
   const slackLog = slackUserId ?? "default";
 
@@ -1025,8 +1027,8 @@ app.get("/api/google-calendar-status", async (req: Request, res: Response) => {
 /**
  * POST /api/meet
  * Body: { "text": "音声内容", "task"?: true, "meet"?: true, "slack_user_id"?: "U..." }
- * - task: true または scheduleMode: "task" … 本文にキーワードが無くても 30 分・Meet なしで登録
- * - meet / forceGoogleMeet / googleMeet … true のとき、本文に会議キーワードが無くても Meet 付きで登録（ショートカット推奨）
+ * - task: true または scheduleMode: "task" … 30 分・Meet なし（ただし **meet: true と併記した場合は meet を優先**し Meet 付きジョブを実行）
+ * - meet（ブール true 可）/ forceGoogleMeet … **必ず** Meet 付きジョブ（タスク本文・task フラグより優先）
  * - slack_user_id: 指定時は meet/data/google_tokens/<U>.json のみを使用（未指定時は .env の GOOGLE_TOKEN_FILE 等）
  * 即座に 200 を返し、Meet / Slack は非同期で実行（Siri の待ち時間短縮）
  */
@@ -1076,10 +1078,10 @@ app.post("/api/meet", (req: Request, res: Response) => {
   }
 
   const jobId = crypto.randomUUID();
-  const message = forceTask
-    ? "受け付けました（30分・Meet なし）。Slack 通知はバックグラウンドで実行されます。"
-    : forceGoogleMeet
-      ? "受け付けました。Meet 付きでカレンダー登録と Slack 通知をバックグラウンドで実行します。"
+  const message = forceGoogleMeet
+    ? "受け付けました。Meet 付きでカレンダー登録と Slack 通知をバックグラウンドで実行します。"
+    : forceTask
+      ? "受け付けました（30分・Meet なし）。Slack 通知はバックグラウンドで実行されます。"
       : "受け付けました。本文の解釈に応じて Meet の有無が決まります。バックグラウンドで実行されます。";
 
   res.status(200).json({
@@ -1094,7 +1096,7 @@ app.post("/api/meet", (req: Request, res: Response) => {
       try {
         await runMeetJob(text, jobId, {
           forceTask,
-          forceGoogleMeet: forceTask ? false : forceGoogleMeet,
+          forceGoogleMeet,
           slackUserId,
         });
       } catch (e) {
