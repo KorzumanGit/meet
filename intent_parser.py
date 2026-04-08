@@ -45,7 +45,13 @@ def _now_iso(tz: ZoneInfo) -> str:
 
 
 _MEETING_MEET_RE = re.compile(
-    r"ミーティング|打ち合わせ|会議|Google\s*Meet|ミーツ|Meets|Meet|MEET|meet|MTG|mtg|Zoom|zoom|ズーム|"
+    r"ミーティング|打ち合わせ|会議|"
+    r"Google\s*Meet|グーグル\s*Meet|"
+    r"\bcall\s+meet\b|"
+    r"\bmeeting\b|"
+    r"ミーツ|Meets|"
+    r"(?<![A-Za-z])Meet(?![A-Za-z])|(?<![A-Za-z])MEET(?![A-Za-z])|(?<![A-Za-z])meet(?![A-Za-z])|"
+    r"MTG|mtg|Zoom|zoom|ズーム|"
     r"オンライン会議|Web会議|Teams|teams|Webミーティング|ウェブミーティング",
     re.IGNORECASE,
 )

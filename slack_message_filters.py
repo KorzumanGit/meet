@@ -13,9 +13,14 @@ import unicodedata
 from dataclasses import dataclass
 
 # ユーザー指定 + 実運用で同格の「ミーティング」
+# 英語: call meet / meet / meeting / google meet は Meet 発行の意図として扱う
 _MEETING_NOUN_PATTERNS = (
     r"\bmtg\b",
     r"(?<![A-Za-z])mt(?![A-Za-z])",  # mt 単体（英単語の一部にしない）
+    r"\bcall\s+meet\b",
+    r"\bgoogle\s+meet\b",
+    r"(?<![A-Za-z])meet(?![A-Za-z])",  # 日本語直後の meet も拾う（\b は非ASCII境界で効かないことがある）
+    r"\bmeeting\b",
     "会議",
     "ミーティング",
     "打ち合わせ",
@@ -36,6 +41,10 @@ _DATETIME_SIGNAL_RE = re.compile(
     r"|(?:午前|午後)\s*\d{1,2}"
     r"|\d{1,2}\s*:\s*\d{2}"
     r"|\d{1,2}\s*時"
+    r"|tomorrow|today|tonight"
+    r"|next\s+week|this\s+week"
+    r"|(?:mon|tue|wed|thu|fri|sat|sun)(?:day)?\b"
+    r"|\d{1,2}\s*(?:am|pm)\b"
     r")",
     re.IGNORECASE,
 )
@@ -46,7 +55,8 @@ _PAST_OPENING_RE = re.compile(
     re.MULTILINE,
 )
 _PAST_WITH_MEETING_RE = re.compile(
-    r"(?:昨日|一昨日|おととい)の(?:mt|mtg|会議|ミーティング|打ち合わせ|面談|商談|アポ)(?:は|を|が|で|と)",
+    r"(?:昨日|一昨日|おととい)の(?:mt|mtg|会議|ミーティング|打ち合わせ|面談|商談|アポ)(?:は|を|が|で|と)"
+    r"|yesterday['\u2019]s?\s+(?:call\s+)?meet\b",
     re.IGNORECASE,
 )
 
