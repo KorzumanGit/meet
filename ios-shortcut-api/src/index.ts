@@ -18,9 +18,10 @@ import axios from "axios";
 import type { OAuth2Client } from "google-auth-library";
 import dayjs from "dayjs";
 import "dayjs/locale/ja";
+import customParseFormat from "dayjs/plugin/customParseFormat";
 import timezone from "dayjs/plugin/timezone";
 import utc from "dayjs/plugin/utc";
-import { ja } from "chrono-node";
+import { ja, type ParsedComponents } from "chrono-node";
 import cors from "cors";
 import dotenv from "dotenv";
 import express, { type Request, type Response } from "express";
@@ -30,10 +31,30 @@ import { google, type calendar_v3 } from "googleapis";
 dotenv.config({ path: path.join(__dirname, "..", ".env") });
 
 dayjs.extend(utc);
+dayjs.extend(customParseFormat);
 dayjs.extend(timezone);
 dayjs.locale("ja");
 
 const TZ = "Asia/Tokyo";
+
+/**
+ * chrono の `ParsingComponents#date()` はサーバのローカル TZ（Docker では UTC が多い）で `Date` を組み立てる。
+ * そのため `dayjs(そのDate).tz("Asia/Tokyo")` だと「東京の 23 時」が「UTC 23 時」として誤解釈され、例えば翌朝 8 時になる。
+ * パースされた年月日・時分は常に東京の壁時計として解釈する。
+ */
+function chronoComponentsToDayjsTokyo(pc: ParsedComponents): dayjs.Dayjs {
+  const y = pc.get("year");
+  const mo = pc.get("month");
+  const d = pc.get("day");
+  const h = pc.get("hour") ?? 0;
+  const mi = pc.get("minute") ?? 0;
+  const s = pc.get("second") ?? 0;
+  if (y == null || mo == null || d == null) {
+    throw new Error("日時の年月日を解釈できませんでした");
+  }
+  const str = `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")} ${String(h).padStart(2, "0")}:${String(mi).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  return dayjs.tz(str, "YYYY-MM-DD HH:mm:ss", TZ);
+}
 
 /** Meet 発行結果を投稿する既定チャンネル（上書き: 環境変数 SLACK_CHANNEL_ID） */
 const DEFAULT_SLACK_CHANNEL_ID = "C0AR1VBT3ED";
@@ -246,12 +267,11 @@ export function parseMeetingFromText(text: string): ParsedWindow {
 
   if (results.length > 0 && results[0].start) {
     const pr = results[0];
-    const startJs = pr.start.date();
-    let start = dayjs(startJs).tz(TZ);
+    let start = chronoComponentsToDayjsTokyo(pr.start);
     let end: dayjs.Dayjs;
 
     if (pr.end) {
-      end = dayjs(pr.end.date()).tz(TZ);
+      end = chronoComponentsToDayjsTokyo(pr.end);
     } else {
       const dur = parseDurationMinutes(raw);
       end = start.add(dur, "minute");
