@@ -1,7 +1,8 @@
 # meet ディレクトリで: docker compose up -d
 # 事前に .env / ios-shortcut-api/.env / credentials.json を配置すること。
 #
-# 本番では OAUTH_PUBLIC_BASE_URL=https://あなたのドメイン
+# 本番 meet/.env: OAUTH_PUBLIC_BASE_URL=https://meet.humbull.co（Google OAuth リダイレクト）
+# ios-shortcut-api/.env: OAUTH_SERVER_PUBLIC_URL=https://meet.humbull.co（/api/meet のヒント・OAuth リンク表示）
 # oauth_server は IOS_SHORTCUT_API_BASE で Node に届ける（コンテナ名で解決）
 
 services:

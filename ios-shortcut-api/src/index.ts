@@ -278,40 +278,77 @@ export const parseMeetingFromJapanese = parseMeetingFromText;
 // Google Calendar + Slack (axios)
 // ---------------------------------------------------------------------------
 
+const SLACK_USER_ID_RE = /^U[A-Za-z0-9]+$/;
+
+/** コンテナ内: /usr/src/data/google_tokens（ホストの meet/data をマウント） */
+function googleTokensDirectory(): string {
+  const d = process.env.GOOGLE_TOKENS_DIR?.trim();
+  if (d) {
+    return path.isAbsolute(d) ? d : path.resolve(process.cwd(), d);
+  }
+  return path.resolve(process.cwd(), "..", "data", "google_tokens");
+}
+
+function tokenJsonPathForSlackUser(slackUserId: string): string {
+  return path.join(googleTokensDirectory(), `${slackUserId}.json`);
+}
+
 /** meet/data/google_tokens/*.json と同じ形式（refresh_token, client_id, client_secret） */
-function loadGoogleCredentialsFromEnv(): {
+function readGoogleCredentialsFromTokenJsonFile(full: string): {
   clientId: string;
   clientSecret: string;
   refreshToken: string;
 } {
+  if (!fs.existsSync(full)) {
+    throw new Error(`Google トークン JSON が見つかりません: ${full}`);
+  }
+  const raw = JSON.parse(fs.readFileSync(full, "utf8")) as {
+    refresh_token?: string;
+    client_id?: string;
+    client_secret?: string;
+  };
+  if (!raw.refresh_token) {
+    throw new Error(`トークン JSON に refresh_token がありません: ${full}`);
+  }
+  const clientId = raw.client_id || process.env.GOOGLE_CLIENT_ID || "";
+  const clientSecret = raw.client_secret || process.env.GOOGLE_CLIENT_SECRET || "";
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      "トークン JSON 使用時は JSON 内の client_id / client_secret、または .env の GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET が必要です"
+    );
+  }
+  return {
+    clientId,
+    clientSecret,
+    refreshToken: raw.refresh_token,
+  };
+}
+
+/**
+ * Google 資格情報を解決する。
+ * - `slackUserId` あり: `GOOGLE_TOKENS_DIR`（既定: ../data/google_tokens）/ `<U>.json`
+ * - なし: `GOOGLE_TOKEN_FILE` または env の refresh_token（従来どおり）
+ */
+function loadGoogleCredentials(slackUserId?: string | null): {
+  clientId: string;
+  clientSecret: string;
+  refreshToken: string;
+} {
+  const id = slackUserId?.trim();
+  if (id) {
+    if (!SLACK_USER_ID_RE.test(id)) {
+      throw new Error(`不正な slack_user_id: ${id}`);
+    }
+    const full = tokenJsonPathForSlackUser(id);
+    return readGoogleCredentialsFromTokenJsonFile(full);
+  }
+
   const tokenFile = process.env.GOOGLE_TOKEN_FILE?.trim();
   if (tokenFile) {
     const full = path.isAbsolute(tokenFile)
       ? tokenFile
       : path.resolve(process.cwd(), tokenFile);
-    if (!fs.existsSync(full)) {
-      throw new Error(`GOOGLE_TOKEN_FILE が見つかりません: ${full}`);
-    }
-    const raw = JSON.parse(fs.readFileSync(full, "utf8")) as {
-      refresh_token?: string;
-      client_id?: string;
-      client_secret?: string;
-    };
-    if (!raw.refresh_token) {
-      throw new Error(`GOOGLE_TOKEN_FILE に refresh_token がありません: ${full}`);
-    }
-    const clientId = raw.client_id || process.env.GOOGLE_CLIENT_ID || "";
-    const clientSecret = raw.client_secret || process.env.GOOGLE_CLIENT_SECRET || "";
-    if (!clientId || !clientSecret) {
-      throw new Error(
-        "GOOGLE_TOKEN_FILE 使用時は JSON 内の client_id / client_secret、または .env の GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET が必要です"
-      );
-    }
-    return {
-      clientId,
-      clientSecret,
-      refreshToken: raw.refresh_token,
-    };
+    return readGoogleCredentialsFromTokenJsonFile(full);
   }
 
   const clientId = process.env.GOOGLE_CLIENT_ID;
@@ -325,15 +362,27 @@ function loadGoogleCredentialsFromEnv(): {
   return { clientId, clientSecret, refreshToken };
 }
 
-function getOAuthClient(): OAuth2Client {
-  const { clientId, clientSecret, refreshToken } = loadGoogleCredentialsFromEnv();
+function getOAuthClient(slackUserId?: string | null): OAuth2Client {
+  const { clientId, clientSecret, refreshToken } = loadGoogleCredentials(slackUserId);
   const oauth2 = new google.auth.OAuth2(clientId, clientSecret);
   oauth2.setCredentials({ refresh_token: refreshToken });
   return oauth2;
 }
 
-/** refresh_token が .env / GOOGLE_TOKEN_FILE のどちらかで渡されているか */
-function hasGoogleCredentialsConfigured(): boolean {
+/** refresh_token が利用可能か。`slackUserId` 指定時はそのユーザーの JSON のみを見る（グローバル .env にフォールバックしない）。 */
+function hasGoogleCredentialsConfigured(slackUserId?: string | null): boolean {
+  const id = slackUserId?.trim();
+  if (id) {
+    if (!SLACK_USER_ID_RE.test(id)) return false;
+    try {
+      const full = tokenJsonPathForSlackUser(id);
+      if (!fs.existsSync(full)) return false;
+      const raw = JSON.parse(fs.readFileSync(full, "utf8")) as { refresh_token?: string };
+      return !!raw.refresh_token;
+    } catch {
+      return false;
+    }
+  }
   const f = process.env.GOOGLE_TOKEN_FILE?.trim();
   if (f) {
     const full = path.isAbsolute(f) ? f : path.resolve(process.cwd(), f);
@@ -347,8 +396,6 @@ function hasGoogleCredentialsConfigured(): boolean {
   }
   return !!process.env.GOOGLE_REFRESH_TOKEN?.trim();
 }
-
-const SLACK_USER_ID_RE = /^U[A-Za-z0-9]+$/;
 
 /**
  * C0AR1VBT3ED への実行結果通知で、未設定時に @daisuke_kouzuma 相当とする Slack メンバー ID（上書き: SLACK_CHANNEL_RESULT_MENTION_USER_ID）
@@ -466,13 +513,17 @@ async function createMeetEvent(params: {
   summary: string;
   start: dayjs.Dayjs;
   end: dayjs.Dayjs;
+  /** 指定時はその Slack ユーザー用トークンを使用し、GOOGLE_CALENDAR_OWNER_EMAIL との照合は行わない */
+  slackUserId?: string;
 }): Promise<{ eventId: string; hangoutLink: string | null | undefined; htmlLink: string | null | undefined }> {
   if (!params.end.isAfter(params.start)) {
     throw new Error("終了時刻は開始時刻より後である必要があります");
   }
 
-  const auth = getOAuthClient();
-  await assertCalendarOwnerMatches(auth);
+  const auth = getOAuthClient(params.slackUserId);
+  if (!params.slackUserId) {
+    await assertCalendarOwnerMatches(auth);
+  }
 
   const cal = google.calendar({ version: "v3", auth });
   const calendarId =
@@ -523,13 +574,16 @@ async function createCalendarEventWithoutConference(params: {
   summary: string;
   start: dayjs.Dayjs;
   end: dayjs.Dayjs;
+  slackUserId?: string;
 }): Promise<{ eventId: string; htmlLink: string | null | undefined }> {
   if (!params.end.isAfter(params.start)) {
     throw new Error("終了時刻は開始時刻より後である必要があります");
   }
 
-  const auth = getOAuthClient();
-  await assertCalendarOwnerMatches(auth);
+  const auth = getOAuthClient(params.slackUserId);
+  if (!params.slackUserId) {
+    await assertCalendarOwnerMatches(auth);
+  }
 
   const cal = google.calendar({ version: "v3", auth });
   const calendarId =
@@ -676,6 +730,15 @@ async function postSlack(text: string): Promise<void> {
 export type MeetJobOptions = {
   /** true のとき本文に「タスク／予定」が無くても 30 分・Meet なし（予定として入れる） */
   forceTask?: boolean;
+  /**
+   * true のとき、本文に「ミーティング」等が無くても Google Meet 付きで予定を作成する。
+   * Siri / ショートカットで「いつ・誰と」だけ聞く場合、本文に会議キーワードが無いと Meet なし分岐になるため、JSON で `meet: true` を送る。
+   */
+  forceGoogleMeet?: boolean;
+  /**
+   * 指定時は `meet/data/google_tokens/<U>.json` をそのリクエスト専用の Google トークンとして使う（本文の `slack_user_id` と一致させる）。
+   */
+  slackUserId?: string;
 };
 
 function parseForceTaskFromBody(body: unknown): boolean {
@@ -691,6 +754,42 @@ function parseForceTaskFromBody(body: unknown): boolean {
   return false;
 }
 
+/** 本番 OAuth 案内・エラーヒント用（`ios-shortcut-api/.env` の OAUTH_SERVER_PUBLIC_URL、未設定時は meet.humbull.co） */
+function publicOauthBaseForHints(): string {
+  return (process.env.OAUTH_SERVER_PUBLIC_URL || "https://meet.humbull.co").replace(
+    /\/$/,
+    ""
+  );
+}
+
+function parseOptionalSlackUserIdFromBody(body: unknown): string | undefined {
+  if (!body || typeof body !== "object") return undefined;
+  const o = body as Record<string, unknown>;
+  const raw = o.slack_user_id ?? o.slackUserId;
+  if (typeof raw !== "string") return undefined;
+  const s = raw.trim();
+  return s || undefined;
+}
+
+/** POST /api/meet の JSON で Meet 付きを強制（本文のキーワード判定をスキップ） */
+function parseForceGoogleMeetFromBody(body: unknown): boolean {
+  if (!body || typeof body !== "object") return false;
+  const o = body as Record<string, unknown>;
+  const keys = [
+    "meet",
+    "forceGoogleMeet",
+    "googleMeet",
+    "withGoogleMeet",
+    "conference",
+  ] as const;
+  for (const k of keys) {
+    const v = o[k];
+    if (v === true || v === 1) return true;
+    if (v === "true" || v === "1") return true;
+  }
+  return false;
+}
+
 async function runMeetJob(
   text: string,
   jobId: string,
@@ -698,6 +797,10 @@ async function runMeetJob(
 ): Promise<void> {
   const parsed = parseMeetingFromText(text);
   const taskMode = Boolean(opts?.forceTask) || isTaskCalendarIntent(text);
+  const wantMeet =
+    Boolean(opts?.forceGoogleMeet) || isMeetingMeetIntent(text);
+  const slackUserId = opts?.slackUserId;
+  const slackLog = slackUserId ?? "default";
 
   if (taskMode) {
     const end = parsed.start.add(30, "minute");
@@ -705,6 +808,7 @@ async function runMeetJob(
       summary: parsed.summary,
       start: parsed.start,
       end,
+      slackUserId,
     });
     const mention = slackResultMentionPrefix();
     const slackBody =
@@ -717,18 +821,19 @@ async function runMeetJob(
       });
     await postSlack(slackBody);
     console.log(
-      `[meet job ${jobId}] task ok event=${created.eventId} htmlLink=${created.htmlLink ?? ""} forceTask=${opts?.forceTask ? "yes" : "no"} slackMention=${mention ? "yes" : "no"}`
+      `[meet job ${jobId}] task ok event=${created.eventId} htmlLink=${created.htmlLink ?? ""} slackUser=${slackLog} forceTask=${opts?.forceTask ? "yes" : "no"} slackMention=${mention ? "yes" : "no"}`
     );
     return;
   }
 
   const end = parsed.start.add(1, "hour");
 
-  if (!isMeetingMeetIntent(text)) {
+  if (!wantMeet) {
     const created = await createCalendarEventWithoutConference({
       summary: parsed.summary,
       start: parsed.start,
       end,
+      slackUserId,
     });
     const mention = slackResultMentionPrefix();
     const slackBody =
@@ -741,7 +846,7 @@ async function runMeetJob(
       });
     await postSlack(slackBody);
     console.log(
-      `[meet job ${jobId}] calendar-only ok event=${created.eventId} htmlLink=${created.htmlLink ?? ""} slackMention=${mention ? "yes" : "no"}`
+      `[meet job ${jobId}] calendar-only ok event=${created.eventId} htmlLink=${created.htmlLink ?? ""} slackUser=${slackLog} forceGoogleMeet=${opts?.forceGoogleMeet ? "yes" : "no"} slackMention=${mention ? "yes" : "no"}`
     );
     return;
   }
@@ -752,7 +857,14 @@ async function runMeetJob(
     summary: meeting.summary,
     start: meeting.start,
     end: meeting.end,
+    slackUserId,
   });
+
+  if (!created.hangoutLink) {
+    console.warn(
+      `[meet job ${jobId}] Google Calendar は成功したが hangoutLink が空です。Workspace の Meet 設定や conferenceData を確認してください。eventId=${created.eventId}`
+    );
+  }
 
   const meetUrl = created.hangoutLink || "(Google Meet の URL を取得できませんでした)";
   const mention = slackResultMentionPrefix();
@@ -776,7 +888,7 @@ async function runMeetJob(
 
   await postSlack(slackBody);
   console.log(
-    `[meet job ${jobId}] ok event=${created.eventId} htmlLink=${created.htmlLink ?? ""} slackMention=${mention ? "yes" : "no"}`
+    `[meet job ${jobId}] ok event=${created.eventId} htmlLink=${created.htmlLink ?? ""} hangout=${created.hangoutLink ? "yes" : "no"} slackUser=${slackLog} forceGoogleMeet=${opts?.forceGoogleMeet ? "yes" : "no"} slackMention=${mention ? "yes" : "no"}`
   );
 }
 
@@ -912,8 +1024,10 @@ app.get("/api/google-calendar-status", async (req: Request, res: Response) => {
 
 /**
  * POST /api/meet
- * Body: { "text": "音声内容", "task"?: true }
+ * Body: { "text": "音声内容", "task"?: true, "meet"?: true, "slack_user_id"?: "U..." }
  * - task: true または scheduleMode: "task" … 本文にキーワードが無くても 30 分・Meet なしで登録
+ * - meet / forceGoogleMeet / googleMeet … true のとき、本文に会議キーワードが無くても Meet 付きで登録（ショートカット推奨）
+ * - slack_user_id: 指定時は meet/data/google_tokens/<U>.json のみを使用（未指定時は .env の GOOGLE_TOKEN_FILE 等）
  * 即座に 200 を返し、Meet / Slack は非同期で実行（Siri の待ち時間短縮）
  */
 app.post("/api/meet", (req: Request, res: Response) => {
@@ -926,13 +1040,30 @@ app.post("/api/meet", (req: Request, res: Response) => {
     return;
   }
   const forceTask = parseForceTaskFromBody(req.body);
+  const forceGoogleMeet = parseForceGoogleMeetFromBody(req.body);
+  const slackUserIdRaw = parseOptionalSlackUserIdFromBody(req.body);
+  if (slackUserIdRaw && !SLACK_USER_ID_RE.test(slackUserIdRaw)) {
+    res.status(400).json({
+      ok: false,
+      error: "slack_user_id は U で始まる Slack メンバー ID 形式である必要があります",
+    });
+    return;
+  }
+  const slackUserId = slackUserIdRaw;
 
-  if (!hasGoogleCredentialsConfigured()) {
+  if (!hasGoogleCredentialsConfigured(slackUserId)) {
+    const base = publicOauthBaseForHints();
+    const hintDefault = `単一トークンなら ios-shortcut-api/.env の GOOGLE_TOKEN_FILE 等。ユーザー別ならブラウザで ${base}/oauth/start?slack_user_id=U... を開き、VM の meet/data/google_tokens/<U>.json を生成してください。`;
+    const hint =
+      slackUserId != null && slackUserId !== ""
+        ? `slack_user_id=${slackUserId} 用のトークンがありません。${base}/oauth/start?slack_user_id=${encodeURIComponent(
+            slackUserId
+          )} で Google を許可し、コンテナから見て data/google_tokens/${slackUserId}.json が存在するか確認してください。`
+        : `Google カレンダーが未連携です。${hintDefault}`;
     res.status(503).json({
       ok: false,
-      error:
-        "Google カレンダーが未連携です。.env に GOOGLE_REFRESH_TOKEN または GOOGLE_TOKEN_FILE を設定し、Mac で OAuth し直してください。",
-      hint: "http://127.0.0.1:3847/auth/google?slack_user_id=U... （oauth_server 8888 起動が必要）",
+      error: "Google カレンダーが未連携、または指定 slack_user_id のトークンがありません。",
+      hint,
     });
     return;
   }
@@ -945,19 +1076,27 @@ app.post("/api/meet", (req: Request, res: Response) => {
   }
 
   const jobId = crypto.randomUUID();
+  const message = forceTask
+    ? "受け付けました（30分・Meet なし）。Slack 通知はバックグラウンドで実行されます。"
+    : forceGoogleMeet
+      ? "受け付けました。Meet 付きでカレンダー登録と Slack 通知をバックグラウンドで実行します。"
+      : "受け付けました。本文の解釈に応じて Meet の有無が決まります。バックグラウンドで実行されます。";
+
   res.status(200).json({
     ok: true,
     accepted: true,
     jobId,
-    message: forceTask
-      ? "受け付けました（30分・Meet なし）。Slack 通知はバックグラウンドで実行されます。"
-      : "受け付けました。Meet 作成と Slack 通知はバックグラウンドで実行されます。",
+    message,
   });
 
   setImmediate(() => {
     void (async () => {
       try {
-        await runMeetJob(text, jobId, { forceTask });
+        await runMeetJob(text, jobId, {
+          forceTask,
+          forceGoogleMeet: forceTask ? false : forceGoogleMeet,
+          slackUserId,
+        });
       } catch (e) {
         const msg =
           e instanceof Error ? e.message : logGoogleApiError(e);
@@ -1053,7 +1192,7 @@ async function main(): Promise<void> {
   app.listen(port, () => {
     console.log(`ios-shortcut-meet-api listening on http://127.0.0.1:${port}`);
     console.log(
-      `POST /api/meet  body: { "text": "..." }  optional: { "task": true } or { "scheduleMode": "task" } → 30分・Meetなし`
+      `POST /api/meet  body: { "text": "..." }  optional: { "task": true } → 30分・Meetなし / { "meet": true } → Meet強制`
     );
     console.log(
       `Google 連携: http://127.0.0.1:${port}/auth/google?slack_user_id=U... → oauth_server (${process.env.OAUTH_SERVER_PUBLIC_URL || "http://127.0.0.1:8888"})`
