@@ -24,16 +24,18 @@ def create_event_with_meet(
     end_iso: str,
     calendar_id: str = "primary",
     timezone: str = TIMEZONE,
+    color_id: str = MEET_EVENT_COLOR_ID,
 ) -> dict[str, Any]:
     """
     イベントを挿入し、conferenceData で Meet を生成する。
     Meet 生成には createRequest.requestId が必須。
+    color_id を渡せば色を変更できる（タスク枠は青、ミーティングは黄など）。
     """
     request_id = uuid.uuid4().hex
 
     body: dict[str, Any] = {
         "summary": title,
-        "colorId": MEET_EVENT_COLOR_ID,
+        "colorId": color_id,
         "start": {
             "dateTime": start_iso,
             "timeZone": timezone,

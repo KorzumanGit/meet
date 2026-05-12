@@ -339,11 +339,10 @@ def on_message(event, client, logger, ack):
     def worker() -> None:
         try:
             calendar_uid = _calendar_slack_user_id_for_google(slack_user_id)
-            # @メンションのみの依頼は従来どおり本文で Meet 判定。フィルタールートは会議依頼なので Meet を付与
+            # 仕様変更: 種別にかかわらずすべて Meet URL を発行する
             result = run_schedule_pipeline(
                 user_text,
                 slack_user_id=calendar_uid,
-                slack_filtered_meeting=not mention_ok,
             )
             lines = [
                 f"*件名:* {result.event_summary}",
@@ -351,14 +350,13 @@ def on_message(event, client, logger, ack):
                 f"*終了:* `{result.end_iso}`",
             ]
             if result.kind == "task":
-                lines.append("*種別:* タスク（30分・Meet は発行していません）")
-            elif result.kind == "calendar":
-                lines.append("*種別:* カレンダーのみ（1時間・Meet は発行していません）")
-            elif result.kind == "meeting":
-                if result.meet_url:
-                    lines.append(f"*Google Meet:* {result.meet_url}")
-                else:
-                    lines.append("*Google Meet:* （URL を取得できませんでした）")
+                lines.append("*種別:* タスク（30分・Meet 付き）")
+            else:
+                lines.append("*種別:* ミーティング（1時間・Meet 付き）")
+            if result.meet_url:
+                lines.append(f"*Google Meet:* {result.meet_url}")
+            else:
+                lines.append("*Google Meet:* （URL を取得できませんでした）")
             if result.calendar_link:
                 lines.append(f"*カレンダー:* {result.calendar_link}")
             _reply_in_thread(client, channel, thread_ts, "\n".join(lines))

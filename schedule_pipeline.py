@@ -7,8 +7,9 @@ from dataclasses import dataclass
 from typing import Any
 
 from calendar_event import (
+    MEET_EVENT_COLOR_ID,
+    TASK_EVENT_COLOR_ID,
     create_event_with_meet,
-    create_event_without_conference,
     extract_meet_url,
 )
 from google_auth import get_calendar_service
@@ -16,7 +17,6 @@ from intent_parser import (
     ensure_default_duration_if_needed,
     force_meeting_one_hour,
     force_task_thirty_minutes,
-    is_meeting_meet_intent,
     is_task_calendar_intent,
     parse_intent_with_openai,
     sanitize_task_title,
@@ -39,21 +39,20 @@ def run_schedule_pipeline(
     *,
     model: str | None = None,
     slack_user_id: str | None = None,
-    slack_filtered_meeting: bool = False,
+    slack_filtered_meeting: bool = False,  # 互換のため残置（未使用）
 ) -> ScheduleResult:
     """
     自然言語テキストを解釈し、Google Calendar に登録する。
 
-    - 「タスク」または「予定」（かな含む）→ 30分・Meet なし
-    - 上記以外かつミーティング系ワード（ミーティング・打ち合わせ・会議・Meet 等）→ 1時間・Meet 付き
-    - それ以外 → 1時間・Meet なし（カレンダーの時間ブロックのみ）
+    仕様: 種別にかかわらず **すべて Google Meet URL を必ず発行する**。
+    - 「タスク」または「予定」（かな含む）→ 30分 + Meet（色: 青）
+    - それ以外 → 1時間 + Meet（色: 黄）
 
     slack_user_id を渡すと、その Slack メンバー用に保存した Google トークンを使う（Slack 経由）。
     None のときは従来どおり単一の token.json（CLI）。
-
-    slack_filtered_meeting=True（Slack でキーワード・日時フィルターを通過した依頼）のときは、
-    タスクモードでない限り **必ず Meet 付きで作成**する（他ユーザーの言い回しで is_meeting_meet_intent が落ちるのを防ぐ）。
     """
+    del slack_filtered_meeting  # 旧仕様の引数（既存呼び出し側との互換のため受け取るだけ）
+
     model = model or os.environ.get("OPENAI_MODEL", "gpt-4o")
     stripped = user_text.strip()
     task_mode = is_task_calendar_intent(stripped)
@@ -66,35 +65,24 @@ def run_schedule_pipeline(
     end_iso = parsed["end_iso"]
     start_iso, end_iso = ensure_default_duration_if_needed(start_iso, end_iso)
 
-    if slack_filtered_meeting:
-        use_meet = not task_mode
-    else:
-        use_meet = (not task_mode) and is_meeting_meet_intent(stripped)
-
     if task_mode:
         start_iso, end_iso = force_task_thirty_minutes(start_iso)
+        color_id = TASK_EVENT_COLOR_ID
         kind = "task"
     else:
         start_iso, end_iso = force_meeting_one_hour(start_iso)
-        kind = "meeting" if use_meet else "calendar"
+        color_id = MEET_EVENT_COLOR_ID
+        kind = "meeting"
 
     service = get_calendar_service(slack_user_id=slack_user_id)
-    if task_mode or not use_meet:
-        event = create_event_without_conference(
-            service,
-            title=title,
-            start_iso=start_iso,
-            end_iso=end_iso,
-        )
-        meet_url = None
-    else:
-        event = create_event_with_meet(
-            service,
-            title=title,
-            start_iso=start_iso,
-            end_iso=end_iso,
-        )
-        meet_url = extract_meet_url(event)
+    event = create_event_with_meet(
+        service,
+        title=title,
+        start_iso=start_iso,
+        end_iso=end_iso,
+        color_id=color_id,
+    )
+    meet_url = extract_meet_url(event)
 
     calendar_link = str(event.get("htmlLink") or "")
     event_summary = str(event.get("summary") or title)

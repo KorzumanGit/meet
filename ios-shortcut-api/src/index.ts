@@ -535,6 +535,8 @@ async function createMeetEvent(params: {
   end: dayjs.Dayjs;
   /** 指定時はその Slack ユーザー用トークンを使用し、GOOGLE_CALENDAR_OWNER_EMAIL との照合は行わない */
   slackUserId?: string;
+  /** カレンダーイベントの色（タスク枠は青、ミーティングは黄など） */
+  colorId?: string;
 }): Promise<{ eventId: string; hangoutLink: string | null | undefined; htmlLink: string | null | undefined }> {
   if (!params.end.isAfter(params.start)) {
     throw new Error("終了時刻は開始時刻より後である必要があります");
@@ -553,7 +555,7 @@ async function createMeetEvent(params: {
 
   const body: calendar_v3.Schema$Event = {
     summary: params.summary,
-    colorId: MEET_EVENT_COLOR_ID,
+    colorId: params.colorId ?? MEET_EVENT_COLOR_ID,
     start: toGoogleCalendarDateTime(params.start),
     end: toGoogleCalendarDateTime(params.end),
     reminders: { useDefault: true },
@@ -670,6 +672,7 @@ function buildTaskSlackMessage(params: {
   summary: string;
   start: dayjs.Dayjs;
   end: dayjs.Dayjs;
+  meetUrl: string;
   calendarUrl?: string | null;
 }): string {
   const when = formatSlackDatetimeRange(params.start, params.end);
@@ -677,31 +680,15 @@ function buildTaskSlackMessage(params: {
     params.calendarUrl != null && params.calendarUrl !== ""
       ? `📅 Google カレンダー: ${params.calendarUrl}\n`
       : "";
+  const meetLine = params.meetUrl
+    ? `🔗 Google Meet: ${params.meetUrl}`
+    : `🔗 Google Meet: (URL を取得できませんでした)`;
   return (
-    `🗓️ タスクをカレンダーに入れました（30分・Meet なし）\n` +
+    `🗓️ タスクをカレンダーに入れました（30分・Meet 付き）\n` +
     `👤 件名: ${params.summary}\n` +
     `⏰ 日時: ${when} (${TZ})\n` +
-    calLine
-  );
-}
-
-/** タスクでもミーティング明示でもないとき（1時間・Meet なし） */
-function buildCalendarBlockSlackMessage(params: {
-  summary: string;
-  start: dayjs.Dayjs;
-  end: dayjs.Dayjs;
-  calendarUrl?: string | null;
-}): string {
-  const when = formatSlackDatetimeRange(params.start, params.end);
-  const calLine =
-    params.calendarUrl != null && params.calendarUrl !== ""
-      ? `📅 Google カレンダー: ${params.calendarUrl}\n`
-      : "";
-  return (
-    `🗓️ カレンダーに入れました（1時間・Meet なし）\n` +
-    `👤 件名: ${params.summary}\n` +
-    `⏰ 日時: ${when} (${TZ})\n` +
-    calLine
+    calLine +
+    meetLine
   );
 }
 
@@ -816,22 +803,27 @@ async function runMeetJob(
   opts?: MeetJobOptions
 ): Promise<void> {
   const parsed = parseMeetingFromText(text);
-  /** JSON の `meet: true` 明示時はタスク分岐より優先し、必ず Meet 付きジョブへ */
+  /** 仕様変更: 種別にかかわらず常に Google Meet URL を発行する */
   const explicitMeet = Boolean(opts?.forceGoogleMeet);
   const taskMode =
     (Boolean(opts?.forceTask) || isTaskCalendarIntent(text)) && !explicitMeet;
-  const wantMeet = explicitMeet || isMeetingMeetIntent(text);
   const slackUserId = opts?.slackUserId;
   const slackLog = slackUserId ?? "default";
 
   if (taskMode) {
     const end = parsed.start.add(30, "minute");
-    const created = await createCalendarEventWithoutConference({
+    const created = await createMeetEvent({
       summary: parsed.summary,
       start: parsed.start,
       end,
       slackUserId,
+      colorId: TASK_EVENT_COLOR_ID,
     });
+    if (!created.hangoutLink) {
+      console.warn(
+        `[meet job ${jobId}] task: Google Calendar は成功したが hangoutLink が空です。eventId=${created.eventId}`
+      );
+    }
     const mention = slackResultMentionPrefix();
     const slackBody =
       mention +
@@ -839,40 +831,17 @@ async function runMeetJob(
         summary: parsed.summary,
         start: parsed.start,
         end,
+        meetUrl: created.hangoutLink ?? "",
         calendarUrl: created.htmlLink,
       });
     await postSlack(slackBody);
     console.log(
-      `[meet job ${jobId}] task ok event=${created.eventId} htmlLink=${created.htmlLink ?? ""} slackUser=${slackLog} forceTask=${opts?.forceTask ? "yes" : "no"} slackMention=${mention ? "yes" : "no"}`
+      `[meet job ${jobId}] task ok event=${created.eventId} hangoutLink=${created.hangoutLink ?? ""} htmlLink=${created.htmlLink ?? ""} slackUser=${slackLog} forceTask=${opts?.forceTask ? "yes" : "no"} slackMention=${mention ? "yes" : "no"}`
     );
     return;
   }
 
   const end = parsed.start.add(1, "hour");
-
-  if (!wantMeet) {
-    const created = await createCalendarEventWithoutConference({
-      summary: parsed.summary,
-      start: parsed.start,
-      end,
-      slackUserId,
-    });
-    const mention = slackResultMentionPrefix();
-    const slackBody =
-      mention +
-      buildCalendarBlockSlackMessage({
-        summary: parsed.summary,
-        start: parsed.start,
-        end,
-        calendarUrl: created.htmlLink,
-      });
-    await postSlack(slackBody);
-    console.log(
-      `[meet job ${jobId}] calendar-only ok event=${created.eventId} htmlLink=${created.htmlLink ?? ""} slackUser=${slackLog} forceGoogleMeet=${opts?.forceGoogleMeet ? "yes" : "no"} slackMention=${mention ? "yes" : "no"}`
-    );
-    return;
-  }
-
   const meeting = { ...parsed, end };
 
   const created = await createMeetEvent({
