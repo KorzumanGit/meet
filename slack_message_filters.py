@@ -1,9 +1,15 @@
 """
-Slack ボットがカレンダー処理を開始するかどうかの判定（メンションなし時の誤爆防止）。
+Slack ボットがカレンダー処理を開始するかどうかの判定。
 
-1. 会議系キーワード
-2. 具体的な日時シグナル（過去談義の除外）
-3. チャンネルでは「冒頭付近」に日時があること（議事録・長文の末尾だけ日付、を避ける）
+現仕様（2026-05 変更）:
+- **@ボットメンションがあるときだけ** Meet 発行パイプラインを起動する。
+- 「ミーティング / 面談 / mtg / 会議 …」といった会議系キーワードを拾って
+  自動で Meet URL を発行する挙動は DM・チャンネルともに停止している。
+  （誤爆を避けるため明示メンションのみに限定）
+
+下記のヘルパー（`has_meeting_keyword` / `has_datetime_signal` /
+`looks_like_past_meeting_story` / `datetime_in_lead_portion`）は
+将来のフィルタ復活や他用途のために残している。
 """
 
 from __future__ import annotations
@@ -131,10 +137,13 @@ def evaluate_schedule_trigger(
     mention_ok: bool,
 ) -> ScheduleTriggerDecision:
     """
-    メンションあり → フィルター通過（ユーザー明示）。
-    DM → キーワード + 日時 + 過去談義除外（冒頭制限は緩い）。
-    チャンネル等・メンションなし → キーワード + 日時 + 過去談義除外 + 冒頭に日時。
+    現仕様: **@ボットメンションがある場合のみ** Meet 発行を許可する。
+    DM / チャンネルを問わず、メンションなしのキーワード自動検知は停止。
+
+    `is_dm` は将来 DM だけ別扱いに戻す余地のために受け取るだけで使わない。
     """
+    del is_dm  # 旧仕様（DM だけキーワード自動検知 OK）の引数互換用に残置
+
     t = _normalize(text)
     if not t:
         return ScheduleTriggerDecision(False, "empty_text")
@@ -142,24 +151,4 @@ def evaluate_schedule_trigger(
     if mention_ok:
         return ScheduleTriggerDecision(True, "bot_mention_explicit")
 
-    if not has_meeting_keyword(t):
-        return ScheduleTriggerDecision(False, "no_meeting_keyword")
-
-    if looks_like_past_meeting_story(t):
-        return ScheduleTriggerDecision(False, "past_meeting_narrative")
-
-    if not has_datetime_signal(t):
-        return ScheduleTriggerDecision(False, "no_datetime_signal")
-
-    if is_dm:
-        return ScheduleTriggerDecision(True, "dm_keyword_datetime_ok")
-
-    if not datetime_in_lead_portion(t):
-        span = _first_datetime_match_span(t)
-        pos = span[0] if span else -1
-        return ScheduleTriggerDecision(
-            False,
-            f"datetime_not_in_lead(first_signal_at={pos})",
-        )
-
-    return ScheduleTriggerDecision(True, "channel_keyword_datetime_lead_ok")
+    return ScheduleTriggerDecision(False, "keyword_autotrigger_disabled")
