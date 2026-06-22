@@ -46,6 +46,8 @@ services:
     depends_on:
       - ios-shortcut-api
 
+  # Slack 連携（DM / メンションでの予定自動作成）は停止中。
+  # 復活させる場合のみ起動:  docker compose --profile slack up -d slack-bot
   slack-bot:
     build:
       context: .
@@ -57,3 +59,4 @@ services:
     volumes:
       - .:/meet
     working_dir: /meet
+    profiles: ["slack"]

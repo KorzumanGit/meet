@@ -16,11 +16,13 @@ fi
 sleep 1
 nohup python oauth_server.py >> oauth_server.log 2>&1 &
 echo $! > oauth_server.pid
-nohup python slack_bot.py >> slack_bot.out 2>&1 &
-echo $! > slack_bot.pid
+# Slack 連携（DM / メンションでの予定自動作成）は停止中。
+# 復活させる場合はこの 2 行のコメントを外す:
+# nohup python slack_bot.py >> slack_bot.out 2>&1 &
+# echo $! > slack_bot.pid
 sleep 1
 echo "oauth_server PID: $(cat oauth_server.pid)  log: oauth_server.log"
-echo "slack_bot    PID: $(cat slack_bot.pid)  log: slack_bot.out / slack_bot.log"
+echo "slack_bot: 停止中（docker-compose.yml の profiles: [slack] / start_services.sh のコメント参照）"
 curl -s -S http://127.0.0.1:8888/health && echo " (oauth OK)" || echo "oauth /health に失敗 — ポート 8888 を確認"
 echo ""
 
